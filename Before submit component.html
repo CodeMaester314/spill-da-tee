@@ -983,7 +983,7 @@
     }
 
     .custom-form-card {
-      background: #564f4aa9;
+      background: #211d1a;
       border: 1px solid rgba(250, 247, 242, 0.08);
       border-radius: 4px;
       padding: 40px
@@ -1006,31 +1006,18 @@
       font-size: 10px;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: rgba(255, 245, 226, 0.471);
+      color: rgba(250, 247, 242, 0.4);
       display: block;
       margin-bottom: 8px
     }
 
     .form-input,
+    .form-select,
     .form-textarea {
       width: 100%;
       background: rgba(250, 247, 242, 0.04);
       border: 1px solid rgba(178, 94, 94, 0.1);
-      color: var(--gray);
-      font-family: var(--font-body);
-      font-size: 14px;
-      padding: 12px 14px;
-      border-radius: 2px;
-      outline: none;
-      transition: border-color 0.2s;
-      appearance: none
-    }
-
-    .form-select {
-      width: 100%;
-      background: rgba(250, 247, 242, 0.04);
-      border: 1px solid rgba(178, 94, 94, 0.1);
-      color: var(--gray);
+      color: var(--black);
       font-family: var(--font-body);
       font-size: 14px;
       padding: 12px 14px;
@@ -1669,12 +1656,6 @@
       transform: translateX(-50%) translateY(0)
     }
 
-    /* CHECKOUT SUBMIT BUTTON LOADING STATE */
-    .form-submit:disabled {
-      opacity: 0.65;
-      cursor: not-allowed
-    }
-
     @media(max-width:900px) {
       nav {
         padding: 0 24px
@@ -1973,10 +1954,19 @@
             placeholder="Juan dela Cruz"></div>
         <div class="form-group"><label class="form-label">Contact (FB / TikTok / Number)</label><input type="text"
             class="form-input" placeholder="@yourhandle or 09xxxxxxxxx"></div>
-
-        <div class="form-group"><label class="form-label"> Message / Notes</label><textarea class="form-textarea"
+        <div class="form-group"><label class="form-label">Product Type</label>
+          <select class="form-select">
+            <option>T-Shirt</option>
+            <option>Hoodie</option>
+            <option>Tote Bag</option>
+            <option>Mixed</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Quantity</label><input type="number" class="form-input"
+            placeholder="Minimum 10 pieces" min="10"></div>
+        <div class="form-group"><label class="form-label">Message / Design Idea</label><textarea class="form-textarea"
             placeholder="Tell us what you want printed, the occasion, or drop a reference..."></textarea></div>
-        <button class="form-submit" onclick="submitInquiry(this)">Send
+        <button class="form-submit" onclick="showToast('Quote request sent! We\'ll reply within 24 hours.')">Send
           Inquiry</button>
       </div>
     </div>
@@ -2167,29 +2157,13 @@
 
   <script>
     // ─────────────────────────────────────────────────────────────
-    //  GOOGLE APPS SCRIPT WEB APP URL
-    //
-    //  Setup (one-time, takes ~3 minutes):
-    //  1. Go to script.google.com → click "New project"
-    //  2. Delete the default code and paste the Apps Script code
-    //     from the separate apps-script.gs file provided
-    //  3. Click Deploy → New deployment
-    //     - Type: Web app
-    //     - Execute as: Me
-    //     - Who has access: Anyone
-    //  4. Click Deploy → copy the /exec URL
-    //  5. Paste it below, replacing YOUR_APPS_SCRIPT_URL_HERE
-    // ─────────────────────────────────────────────────────────────
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyz8K_bp4BkE4YffVE6v4I2ckLEA9iksP4l6HvXMQMwOw4z2vHmfyF4eAwilg8HfdSApw/exec';
-
-    // ─────────────────────────────────────────────────────────────
-    //  GOOGLE SHEETS LIVE SYNC (product catalogue)
-    // ─────────────────────────────────────────────────────────────
-    //  CSV export URL — CORS-friendly unlike the gviz endpoint
+    //  GOOGLE SHEETS LIVE SYNC
+    //  Spreadsheet ID — update this if the sheet ever changes
     // ─────────────────────────────────────────────────────────────
     const SHEET_ID = '1djQ1ZmGnJFt_RxBQLGh_g4kDEy1qfy6IdxoAOENjjPQ';
-    const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
+    const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
 
+    // Card background colours per category
     const CARD_BG = {
       "women's": '#f2e0e5',
       "men's": '#ede8e0',
@@ -2197,9 +2171,11 @@
       "tote bags": '#ece8e3',
     };
 
+    // Formats a design name into 3-line display text for the card mockup
     function designToDisplay(name) {
       const words = name.replace(/\.$/, '').split(' ');
       if (words.length <= 3) return words.join('\n');
+      // Split roughly into 3 lines
       const third = Math.ceil(words.length / 3);
       return [
         words.slice(0, third).join(' '),
@@ -2208,41 +2184,18 @@
       ].join('\n');
     }
 
+    // Turns "QUITE CONFIDENCE." → "Quite Confidence"
     function titleCase(str) {
       return str.replace(/\.$/, '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
     }
 
-    let products = [];
+    // State
+    let products = [];       // parsed from sheet
     let activeFilter = 'all';
     let cart = [];
     const selectedSizes = {};
 
-    // ── CSV PARSER (handles quoted fields) ──────────────────────
-    function parseCSV(text) {
-      const rows = [];
-      const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const cols = [];
-        let cur = '', inQuote = false;
-        for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          if (ch === '"') {
-            if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
-            else { inQuote = !inQuote; }
-          } else if (ch === ',' && !inQuote) {
-            cols.push(cur.trim()); cur = '';
-          } else {
-            cur += ch;
-          }
-        }
-        cols.push(cur.trim());
-        rows.push(cols);
-      }
-      return rows;
-    }
-
-    // ── FETCH & PARSE SHEET (CSV) ────────────────────────────────
+    // ── FETCH & PARSE SHEET ──────────────────────────────────────
     async function loadProducts() {
       const dot = document.getElementById('syncDot');
       const label = document.getElementById('syncLabel');
@@ -2251,67 +2204,80 @@
 
       try {
         const res = await fetch(SHEET_URL);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
         const text = await res.text();
-        const rows = parseCSV(text);
 
-        // Row 0 is the header — skip it
-        const dataRows = rows.slice(1);
+        // Strip the JSONP wrapper Google adds
+        const json = JSON.parse(text.replace(/^[^(]+\(/, '').replace(/\);?\s*$/, ''));
+        const rows = json.table.rows;
 
-        // Group by (Category + Design) → collect sizes + price
+        // rows[0] is the header — skip it; parse from row index 1
+        const rawRows = rows.slice(1);
+
+        // Group rows by (Category + Design) → collect sizes + price
         const map = new Map();
-        for (const cols of dataRows) {
-          const category = (cols[0] || '').trim();
-          const design = (cols[1] || '').trim();
-          const size = (cols[2] || '').trim().toUpperCase();
-          const price = parseInt(cols[3] || 0, 10);
-          if (!category || !design || !size) continue;
-          const key = category + '|||' + design;
-          if (!map.has(key)) map.set(key, { category, design, price, sizes: [] });
+        for (const row of rawRows) {
+          const c = row.c;
+          if (!c || !c[0] || !c[1] || !c[2] || !c[3]) continue;
+
+          const category = (c[0].v || '').trim();
+          const design = (c[1].v || '').trim();
+          const size = (c[2].v || '').trim().toUpperCase();
+          const price = parseInt(c[3].v || 0, 10);
+          const key = `${category}|||${design}`;
+
+          if (!map.has(key)) {
+            map.set(key, { category, design, price, sizes: [] });
+          }
           const entry = map.get(key);
           if (!entry.sizes.includes(size)) entry.sizes.push(size);
+          // Take the highest price if they differ (shouldn't, but just in case)
           if (price > entry.price) entry.price = price;
         }
 
+        // Convert map to products array
         let id = 1;
         products = [];
         for (const [, v] of map) {
-          const currentId = id++;
-          products.push({
-            id: currentId,
-            name: titleCase(v.design),
-            design: v.design,
-            collection: v.category,
-            type: v.category.toLowerCase(),
-            price: v.price,
-            sizes: v.sizes,
-            displayText: designToDisplay(v.design),
-            badge: currentId <= 3 ? 'New' : '',
-          });
+          id: currentId,
+            products.push({
+              id: id++,
+              name: titleCase(v.design),
+              design: v.design,
+              collection: v.category,
+              type: v.category.toLowerCase(),
+              price: v.price,
+              sizes: v.sizes,
+              displayText: designToDisplay(v.design),
+              badge: currentId <= 3 ? 'New' : '',
+            });
         }
 
+        // Update the "designs" stat
         const uniqueDesigns = new Set(products.map(p => p.design)).size;
         const statEl = document.getElementById('stat-designs');
         if (statEl) statEl.textContent = uniqueDesigns + '+';
 
         dot.className = 'sync-dot';
-        label.textContent = 'Live from spreadsheet · ' + products.length + ' products · updated now';
+        label.textContent = `Live from spreadsheet · ${products.length} products · updated now`;
+
         renderProducts(activeFilter);
 
       } catch (err) {
         console.error('Sheet load error:', err);
         dot.className = 'sync-dot error';
         label.textContent = 'Could not load spreadsheet — using cached data';
+        // Fall back to hardcoded data
         loadFallback();
       }
     }
 
+    // Fallback data matching the sheet you pasted (used if fetch fails)
     function loadFallback() {
       products = [
         { id: 1, name: "I Said What I Said", design: "I SAID WHAT I SAID.", collection: "Women's", type: "women's", price: 500, sizes: ["XS", "S", "M", "L", "XL"], displayText: "I SAID\nWHAT I\nSAID.", badge: "New" },
-        { id: 2, name: "Unbothered Season", design: "UNBOTHERED SEASON.", collection: "Women's", type: "women's", price: 500, sizes: ["XS", "S", "M", "L", "XL"], displayText: "UN-\nBOTHERED\nSEASON.", badge: "New" },
+        { id: 2, name: "Unbothered Season", design: "UINBOTHERED SEASON.", collection: "Women's", type: "women's", price: 500, sizes: ["XS", "S", "M", "L", "XL"], displayText: "UN-\nBOTHERED\nSEASON.", badge: "New" },
         { id: 3, name: "Not Your Girl", design: "NOT YOUR GIRL.", collection: "Women's", type: "women's", price: 500, sizes: ["XS", "S", "M", "L", "XL"], displayText: "NOT\nYOUR\nGIRL.", badge: "New" },
-        { id: 4, name: "Quiet Confidence", design: "QUIET CONFIDENCE.", collection: "Men's", type: "men's", price: 500, sizes: ["S", "M", "L", "XL", "XXL"], displayText: "QUIET\nCONFI-\nDENCE.", badge: "" },
+        { id: 4, name: "Quiet Confidence", design: "QUITE CONFIDENCE.", collection: "Men's", type: "men's", price: 500, sizes: ["S", "M", "L", "XL", "XXL"], displayText: "QUIET\nCONFI-\nDENCE.", badge: "" },
         { id: 5, name: "I Know I'm That Guy", design: "I KNOW I'M THAT GUY.", collection: "Men's", type: "men's", price: 500, sizes: ["S", "M", "L", "XL", "XXL"], displayText: "I KNOW\nI'M THAT\nGUY.", badge: "" },
         { id: 6, name: "Effortless By Default", design: "EFFORTLESS BY DEFAULT.", collection: "Men's", type: "men's", price: 500, sizes: ["S", "M", "L", "XL", "XXL"], displayText: "EFFORT-\nLESS BY\nDEFAULT.", badge: "" },
         { id: 7, name: "I Said What I Said", design: "I SAID WHAT I SAID.", collection: "Hoodies", type: "hoodies", price: 800, sizes: ["S", "M", "L", "XL", "XXL"], displayText: "I SAID\nWHAT I\nSAID.", badge: "New" },
@@ -2327,7 +2293,9 @@
     // ── RENDER PRODUCTS ──────────────────────────────────────────
     function renderProducts(filter) {
       const grid = document.getElementById('productsGrid');
-      const filtered = filter === 'all' ? products : products.filter(p => p.type === filter);
+      const filtered = filter === 'all'
+        ? products
+        : products.filter(p => p.type === filter);
 
       if (filtered.length === 0) {
         grid.innerHTML = `<div class="products-loading" style="opacity:0.5">No products found in this category.</div>`;
@@ -2335,25 +2303,26 @@
       }
 
       const bg = (type) => CARD_BG[type] || '#ece8e3';
+
       grid.innerHTML = filtered.map(p => `
-        <div class="product-card">
-          <div class="product-img" style="background:${bg(p.type)}">
-            ${p.badge ? `<span class="product-badge new">${p.badge}</span>` : ''}
-            <div class="product-img-text">${p.displayText.replace(/\n/g, '<br>')}</div>
-            <div class="product-img-tag">Spill Da Tee Studio.</div>
-          </div>
-          <div class="product-info">
-            <div class="product-collection">${p.collection}</div>
-            <div class="product-name">${p.name}</div>
-            <div class="product-price">₱${p.price.toLocaleString()}</div>
-            <div class="product-sizes" id="sizes-${p.id}">
-              ${p.sizes.map(s => `<div class="size-dot" onclick="selectSize(${p.id},'${s}',this)">${s}</div>`).join('')}
-            </div>
-            <div class="size-required-msg" id="sizemsg-${p.id}">Please select a size</div>
-            <button class="product-add" onclick="addToCart(${p.id})">Add to Cart</button>
-          </div>
+      <div class="product-card">
+        <div class="product-img" style="background:${bg(p.type)}">
+          ${p.badge ? `<span class="product-badge new">${p.badge}</span>` : ''}
+          <div class="product-img-text">${p.displayText.replace(/\n/g, '<br>')}</div>
+          <div class="product-img-tag">Spill Da Tee Studio.</div>
         </div>
-      `).join('');
+        <div class="product-info">
+          <div class="product-collection">${p.collection}</div>
+          <div class="product-name">${p.name}</div>
+          <div class="product-price">₱${p.price.toLocaleString()}</div>
+          <div class="product-sizes" id="sizes-${p.id}">
+            ${p.sizes.map(s => `<div class="size-dot" onclick="selectSize(${p.id},'${s}',this)">${s}</div>`).join('')}
+          </div>
+          <div class="size-required-msg" id="sizemsg-${p.id}">Please select a size</div>
+          <button class="product-add" onclick="addToCart(${p.id})">Add to Cart</button>
+        </div>
+      </div>
+    `).join('');
     }
 
     function setFilter(btn, filter) {
@@ -2368,6 +2337,9 @@
       renderProducts(filter);
       document.querySelectorAll('.filter-btn').forEach(b => {
         b.classList.remove('active');
+      });
+      // Match button by its onclick attribute value
+      document.querySelectorAll('.filter-btn').forEach(b => {
         const onclick = b.getAttribute('onclick') || '';
         if (onclick.includes(`'${filter}'`) || onclick.includes(`"${filter}"`)) {
           b.classList.add('active');
@@ -2378,7 +2350,9 @@
     // ── SIZE SELECTION ───────────────────────────────────────────
     function selectSize(id, size, el) {
       selectedSizes[id] = size;
-      document.getElementById('sizes-' + id).querySelectorAll('.size-dot').forEach(d => d.classList.remove('active'));
+      document.getElementById('sizes-' + id)
+        .querySelectorAll('.size-dot')
+        .forEach(d => d.classList.remove('active'));
       el.classList.add('active');
       const msg = document.getElementById('sizemsg-' + id);
       if (msg) msg.classList.remove('visible');
@@ -2418,6 +2392,7 @@
     function addToCartHero() {
       const active = document.querySelector('#hero-sizes .size-dot.active');
       if (!active) { showToast('Pick a size first!'); return; }
+      // Hero card shows the first Women's product
       const heroProduct = products.find(p => p.type === "women's") || products[0];
       if (!heroProduct) { showToast('Products still loading…'); return; }
       addToCart(heroProduct.id, active.textContent.trim());
@@ -2460,41 +2435,41 @@
       const itemsEl = document.getElementById('cartItems');
       if (cart.length === 0) {
         itemsEl.innerHTML = `
-          <div class="cart-empty">
-            <div class="cart-empty-icon">
-              <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1"
-                viewBox="0 0 24 24" style="opacity:0.2">
-                <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
-                <line x1="3" y1="6" x2="21" y2="6"/>
-                <path d="M16 10a4 4 0 01-8 0"/>
-              </svg>
-            </div>
-            <div class="cart-empty-text">Your cart is empty</div>
-          </div>`;
+        <div class="cart-empty">
+          <div class="cart-empty-icon">
+            <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1"
+              viewBox="0 0 24 24" style="opacity:0.2">
+              <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <path d="M16 10a4 4 0 01-8 0"/>
+            </svg>
+          </div>
+          <div class="cart-empty-text">Your cart is empty</div>
+        </div>`;
       } else {
         itemsEl.innerHTML = cart.map(item => `
-          <div class="cart-item">
-            <div class="cart-item-img">${item.displayText.replace(/\n/g, '<br>')}</div>
-            <div class="cart-item-info">
-              <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);margin-bottom:3px">${item.collection}</div>
-              <div class="cart-item-name">${item.name}</div>
-              <div class="cart-item-controls">
-                <select class="cart-size-select"
-                  onchange="changeCartSize('${item.cartKey}',this.value,${item.id})">
-                  ${item.sizes.map(s =>
+        <div class="cart-item">
+          <div class="cart-item-img">${item.displayText.replace(/\n/g, '<br>')}</div>
+          <div class="cart-item-info">
+            <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:var(--muted);margin-bottom:3px">${item.collection}</div>
+            <div class="cart-item-name">${item.name}</div>
+            <div class="cart-item-controls">
+              <select class="cart-size-select"
+                onchange="changeCartSize('${item.cartKey}',this.value,${item.id})">
+                ${item.sizes.map(s =>
           `<option value="${s}" ${s === item.size ? 'selected' : ''}>${s}</option>`
         ).join('')}
-                </select>
-                <div class="qty-stepper">
-                  <button class="qty-btn minus" onclick="changeQty('${item.cartKey}',-1)">−</button>
-                  <span class="qty-display">${item.qty}</span>
-                  <button class="qty-btn plus"  onclick="changeQty('${item.cartKey}', 1)">+</button>
-                </div>
+              </select>
+              <div class="qty-stepper">
+                <button class="qty-btn minus" onclick="changeQty('${item.cartKey}',-1)">−</button>
+                <span class="qty-display">${item.qty}</span>
+                <button class="qty-btn plus"  onclick="changeQty('${item.cartKey}', 1)">+</button>
               </div>
-              <div class="cart-item-price">₱${(item.price * item.qty).toLocaleString()}</div>
             </div>
-            <button class="cart-item-remove" onclick="removeFromCart('${item.cartKey}')" title="Remove">✕</button>
-          </div>`).join('');
+            <div class="cart-item-price">₱${(item.price * item.qty).toLocaleString()}</div>
+          </div>
+          <button class="cart-item-remove" onclick="removeFromCart('${item.cartKey}')" title="Remove">✕</button>
+        </div>`).join('');
       }
     }
 
@@ -2511,46 +2486,6 @@
       setTimeout(() => t.classList.remove('show'), 2800);
     }
 
-    // ── INQUIRY FORM (Custom Orders → Get a Quote) ───────────────
-    async function submitInquiry(btn) {
-      const card = document.querySelector('.custom-form-card');
-      const inputs = card.querySelectorAll('.form-input');
-      const name = inputs[0].value.trim();
-      const contact = inputs[1].value.trim();
-      const message = card.querySelector('.form-textarea').value.trim();
-
-      if (!name || !contact) {
-        showToast('Please enter your name and contact info.');
-        return;
-      }
-
-      const originalText = btn.textContent;
-      btn.textContent = 'Sending…';
-      btn.disabled = true;
-
-      if (APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE') {
-        try {
-          await fetch(APPS_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'inquiry', name, contact, message })
-          });
-        } catch (err) {
-          console.error('Inquiry logging error:', err);
-        }
-      } else {
-        console.log('📝 Inquiry (would write to sheet):', { name, contact, message });
-      }
-
-      showToast("Quote request sent! We'll reply within 24 hours.");
-      inputs[0].value = '';
-      inputs[1].value = '';
-      card.querySelector('.form-textarea').value = '';
-      btn.textContent = originalText;
-      btn.disabled = false;
-    }
-
     // ── NEWSLETTER ───────────────────────────────────────────────
     function subscribeNewsletter() {
       const email = document.getElementById('nlEmail').value;
@@ -2563,7 +2498,7 @@
     function buildMarquee() {
       const items = [
         'Wear What You Mean', '·', 'Say It On Your Chest', '·', 'First Drop Live Now', '·',
-        'I Said What I Said', '·', "I Know I'm That Guy", '·', 'Spill Da Tee Studio', '·',
+        'I Said What I Said', '·', 'I Know I\'m That Guy', '·', 'Spill Da Tee Studio', '·',
         'Limited Units Only', '·', 'The Tee That Talks', '·'
       ];
       const track = document.getElementById('marqueeTrack');
@@ -2595,26 +2530,17 @@
     // ── INIT ─────────────────────────────────────────────────────
     buildMarquee();
     startCountdown();
-    loadProducts();
+    loadProducts();   // ← fetches sheet on every page load
 
-    // ── CHECKOUT & GOOGLE SHEETS LOGGING ─────────────────────────
 
-    /**
-     * Builds the Order Details string for the spreadsheet.
-     * One line per SKU: CATEGORY, Design Name, SIZE, Qty
-     * e.g. "HOODIES, I Know I'm That Guy, XXL, 4"
-     */
-    function buildOrderDetails() {
-      return cart.map(item =>
-        `${item.collection.toUpperCase()}, ${item.name}, ${item.size}, ${item.qty}`
-      ).join('\n');
-    }
+
 
     function checkout() {
       if (cart.length === 0) {
         showToast('Your cart is empty!');
         return;
       }
+
       document.getElementById('checkoutModal').style.display = 'flex';
     }
 
@@ -2622,7 +2548,7 @@
       document.getElementById('checkoutModal').style.display = 'none';
     }
 
-    async function submitCheckout() {
+    function submitCheckout() {
       const name = document.getElementById('checkoutName').value.trim();
       const address = document.getElementById('checkoutAddress').value.trim();
       const contact = document.getElementById('checkoutContact').value.trim();
@@ -2632,80 +2558,53 @@
         return;
       }
 
-      const total = cart.reduce((a, b) => a + b.price * b.qty, 0);
-      const orderDetails = buildOrderDetails();
+      showToast('Order submitted successfully!');
 
-      const submitBtn = document.querySelector('#checkoutModal .form-submit');
-      const originalText = submitBtn.textContent;
-      submitBtn.textContent = 'Sending…';
-      submitBtn.disabled = true;
-
-      // ── Write to Google Sheets via Apps Script ──
-      if (APPS_SCRIPT_URL && APPS_SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL_HERE') {
-        try {
-          await fetch(APPS_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',   // Apps Script requires no-cors from browser
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, address, contact, orderDetails, total })
-          });
-          // no-cors returns an opaque response — if no throw, assume success
-        } catch (err) {
-          console.error('Sheets logging error:', err);
-          // Non-blocking — still complete the order flow
-        }
-      } else {
-        // Log to console during development (before Apps Script is set up)
-        console.log('📦 Order Details (would write to sheet):\n', { name, address, contact, orderDetails, total });
-      }
-
-      showToast("Order submitted! We'll confirm via DM shortly 🎉");
       closeCheckout();
+
+      // Optional: clear cart after submit
       cart = [];
       updateCartUI();
-
-      submitBtn.textContent = originalText;
-      submitBtn.disabled = false;
     }
   </script>
-
   <!-- CHECKOUT MODAL -->
   <div id="checkoutModal" style="
-    display:none;
-    position:fixed;
-    inset:0;
-    background:rgba(0,0,0,0.6);
-    z-index:500;
-    align-items:center;
-    justify-content:center;
-    padding:20px;
-  ">
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.6);
+  z-index:500;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+">
     <div style="
-      background:#faf7f2;
-      width:100%;
-      max-width:500px;
-      border-radius:4px;
-      padding:32px;
-      position:relative;
-      max-height:90vh;
-      overflow-y:auto;
-    ">
+    background:#faf7f2;
+    width:100%;
+    max-width:500px;
+    border-radius:4px;
+    padding:32px;
+    position:relative;
+  ">
+
       <button onclick="closeCheckout()" style="
-        position:absolute;
-        top:16px;
-        right:16px;
-        background:none;
-        border:none;
-        font-size:20px;
-        cursor:pointer;
-      ">✕</button>
+      position:absolute;
+      top:16px;
+      right:16px;
+      background:none;
+      border:none;
+      font-size:20px;
+      cursor:pointer;
+    ">✕</button>
 
       <h2 style="
-        font-family:'Bebas Neue',sans-serif;
-        font-size:42px;
-        margin-bottom:24px;
-        letter-spacing:0.03em;
-      ">Checkout</h2>
+      font-family:'Bebas Neue',sans-serif;
+      font-size:42px;
+      margin-bottom:24px;
+      letter-spacing:0.03em;
+    ">
+        Checkout
+      </h2>
 
       <div class="form-group">
         <label class="form-label">Name</label>
@@ -2723,11 +2622,11 @@
       </div>
 
       <button class="form-submit" onclick="submitCheckout()">
-        Submit Order
+        Submit
       </button>
+
     </div>
   </div>
-
 </body>
 
 </html>
